@@ -6,26 +6,27 @@ if __name__ == "__main__":
     from pathlib import Path
     from fits_io import FitsIO
 
-    img_path = Path("/media/ben/Analysis/Python/Images/nd2/Run2_test/control/c2z25t23v1_nd2_s1/fits_array.tif")
+    folder = Path("/media/ben/Analysis/Python/Images/zymosan/zym_chamber_500k_WT_HoxB8_001_s1")
+    img_path = folder / "fits_array.tif"
     img_reader = FitsIO.from_path(img_path)
     
-    mask_path = Path("/media/ben/Analysis/Python/Images/nd2/Run2_test/control/c2z25t23v1_nd2_s1/fits_mask.tif")
+    mask_path = folder / "fits_mask.tif"
     mask_reader = FitsIO.from_path(mask_path)
     
-    img_gfp = img_reader.get_channel_array('GFP')
+    img_gfp = img_reader.get_channel_array('BFP')
     if isinstance(img_gfp, list):
-        raise ValueError("Expected a single array for the GFP channel, but got a list.")
+        raise ValueError("Expected a single array for the BFP channel, but got a list.")
     
     mask_gfp = mask_reader.get_array()
     if isinstance(mask_gfp, list):
-        raise ValueError("Expected a single array for the GFP mask channel, but got a list.")
+        raise ValueError("Expected a single array for the BFP mask channel, but got a list.")
     
     model = Trackastra.from_pretrained("general_2d")
 
     track_graph, masks_tracked = model.track(
         img_gfp,
         mask_gfp,
-        mode="greedy"
+        mode="greedy_nodiv"
     )
     
     ctc_tracks, ctc_masks = graph_to_ctc(
