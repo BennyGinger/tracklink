@@ -66,6 +66,7 @@ class TrackModel:
         return self._backend.tracks_df
     
 
+
 if __name__ == "__main__":
     from pathlib import Path
     from fits_io import FitsIO
@@ -76,25 +77,23 @@ if __name__ == "__main__":
     
     folder = Path("/media/ben/Analysis/Python/Images/zymosan/zym_chamber_500k_WT_HoxB8_001_s1")
     arrays = FitsIO.from_path(folder / "fits_array.tif")
-    BFP_array = arrays.get_channel_array('BFP')
-    if isinstance(BFP_array, list):
-        BFP_array = BFP_array[0]
+    BFP_array = arrays.get_channel('BFP').array
     
     masks = FitsIO.from_path(folder / "fits_mask.tif")
-    BFP_mask = masks.get_array()
-    if isinstance(BFP_mask, list):
-        BFP_mask = BFP_mask[0]
+    BFP_mask = masks.get_array().array
     
     tracking = TrackModel(backend="trackastra")
     tracking.configure(user_settings)
     tracked_mask = tracking.track(BFP_array, BFP_mask)
+    masks.save_array(tracked_mask,
+                     channel_labels="BFP",
+                     output_name="fits_tracked.tif",)
     
-    filtered_mask = tracking.filter_by_length(min_length=120)
     
     tracks_df = tracking.tracks_df
     tracks_df.to_csv(folder / "fits_tracks.csv", index=False)
     
+    filtered_mask = tracking.filter_by_length(min_length=120)
     masks.save_array(filtered_mask,
-                     axis_order="TYX",
                      channel_labels="BFP",
-                     output_name="fits_track.tif",)
+                     output_name="fits_tracked_filtered.tif",)

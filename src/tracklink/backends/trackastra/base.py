@@ -1,15 +1,45 @@
 from typing import Literal, Any
+from contextlib import ExitStack
+from importlib import import_module
+from unittest.mock import patch
 
 from trackastra.model import Trackastra
-from trackastra.tracking import graph_to_ctc
+from trackastra.tracking import (apply_solution_graph_to_masks,
+                                 build_graph,
+                                 graph_to_ctc,
+                                 track_greedy,)
 from numpy.typing import NDArray
 import pandas as pd
+from tqdm import tqdm
 
 PretrainedModel = Literal["ctc", "general_2d", "general_2d_w_SAM2_features"]
 Mode = Literal["greedy", "greedy_nodiv", "ilp"]
 
 
-def track_astra(img_array: NDArray[Any], mask_array: NDArray[Any], mode: Mode = "greedy_nodiv", pretrained_model: PretrainedModel = "general_2d", max_distance: int = 128) -> tuple[pd.DataFrame, NDArray[Any]]:
+class _QuietTqdm(tqdm):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        kwargs["disable"] = True
+        super().__init__(*args, **kwargs)
+
+
+def _quiet_module_tqdm(stack: ExitStack, function: Any) -> None:
+    """
+    Replace the tqdm symbol in the module defining `function`, when present.
+    """
+    module = import_module(function.__module__)
+
+    if hasattr(module, "tqdm"):
+        stack.enter_context(
+            patch.object(module, "tqdm", _QuietTqdm)
+        )
+
+
+def track_astra(img_array: NDArray[Any], 
+                mask_array: NDArray[Any], 
+                mode: Mode = "greedy_nodiv", 
+                pretrained_model: PretrainedModel = "general_2d", 
+                max_distance: int = 128
+                ) -> tuple[pd.DataFrame, NDArray[Any]]:
     """Perform tracking using the Trackastra model.
     
     Args:
@@ -22,12 +52,22 @@ def track_astra(img_array: NDArray[Any], mask_array: NDArray[Any], mode: Mode = 
     Returns:
         A tuple containing a DataFrame with track information and a mask array with tracked labels.
     """
+    with ExitStack() as stack:
+        # These functions use their own directly imported tqdm.
+        _quiet_module_tqdm(stack, build_graph)
+        _quiet_module_tqdm(stack, track_greedy)
+        _quiet_module_tqdm(stack, graph_to_ctc)
+        _quiet_module_tqdm(stack, apply_solution_graph_to_masks)
     
     # Initialize the Trackastra model
     model = Trackastra.from_pretrained(pretrained_model)
     
     # Perform tracking
-    track_graph, masks_tracked = model.track(img_array, mask_array, mode=mode, max_distance=max_distance)
+    track_graph, masks_tracked = model.track(img_array, 
+                                             mask_array, 
+                                             mode=mode, 
+                                             max_distance=max_distance,
+                                             progbar_class=_QuietTqdm)
     
     df_tracks, ctc_masks = graph_to_ctc(track_graph, masks_tracked,)
     
