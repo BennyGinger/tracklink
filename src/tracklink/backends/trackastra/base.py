@@ -1,15 +1,25 @@
 from typing import Literal, Any
 from contextlib import ExitStack
 from importlib import import_module
+from pathlib import Path
 from unittest.mock import patch
+import warnings
 
-from trackastra.model import Trackastra
-from trackastra.tracking import (apply_solution_graph_to_masks,
-                                 build_graph,
-                                 graph_to_ctc,
-                                 track_greedy,)
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r"urllib3 .* doesn't match a supported version!",
+        module=r"requests",
+    )
+    from trackastra.model import Trackastra
+    from trackastra.tracking import (apply_solution_graph_to_masks,
+                                     build_graph,
+                                     graph_to_ctc,
+                                     track_greedy,)
 from numpy.typing import NDArray
 import pandas as pd
+from platformdirs import user_data_dir
+from scipy.sparse import SparseEfficiencyWarning
 from tqdm import tqdm
 
 PretrainedModel = Literal["ctc", "general_2d", "general_2d_w_SAM2_features"]
@@ -59,16 +69,24 @@ def track_astra(img_array: NDArray[Any],
         _quiet_module_tqdm(stack, graph_to_ctc)
         _quiet_module_tqdm(stack, apply_solution_graph_to_masks)
     
-    # Initialize the Trackastra model
-    model = Trackastra.from_pretrained(pretrained_model)
+    # Loading a cached model through ``from_pretrained`` produces an
+    # unconditional print in Trackastra. Bypass its downloader when the model
+    # is already available, without redirecting stdout used by the pipeline UI.
+    model_dir = Path(user_data_dir("trackastra")) / "models" / pretrained_model
+    if model_dir.exists():
+        model = Trackastra.from_folder(model_dir)
+    else:
+        model = Trackastra.from_pretrained(pretrained_model)
     
     # Perform tracking
-    track_graph, masks_tracked = model.track(img_array, 
-                                             mask_array, 
-                                             mode=mode, 
-                                             max_distance=max_distance,
-                                             progbar_class=_QuietTqdm)
-    
-    df_tracks, ctc_masks = graph_to_ctc(track_graph, masks_tracked,)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SparseEfficiencyWarning)
+        track_graph, masks_tracked = model.track(img_array,
+                                                 mask_array,
+                                                 mode=mode,
+                                                 max_distance=max_distance,
+                                                 progbar_class=_QuietTqdm)
+
+        df_tracks, ctc_masks = graph_to_ctc(track_graph, masks_tracked,)
     
     return df_tracks, ctc_masks
