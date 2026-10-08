@@ -1,4 +1,7 @@
-from typing import Literal, Any
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Literal, Any, cast
 from contextlib import ExitStack
 from importlib import import_module
 from pathlib import Path
@@ -11,7 +14,6 @@ with warnings.catch_warnings():
         message=r"urllib3 .* doesn't match a supported version!",
         module=r"requests",
     )
-    from trackastra.model import Trackastra
     from trackastra.tracking import (apply_solution_graph_to_masks,
                                      build_graph,
                                      graph_to_ctc,
@@ -21,6 +23,8 @@ import pandas as pd
 from platformdirs import user_data_dir
 from scipy.sparse import SparseEfficiencyWarning
 from tqdm import tqdm
+
+from tracklink.backends.trackastra.model import ResumableTrackastra
 
 PretrainedModel = Literal["ctc", "general_2d", "general_2d_w_SAM2_features"]
 Mode = Literal["greedy", "greedy_nodiv", "ilp"]
@@ -32,7 +36,7 @@ class _QuietTqdm(tqdm):
         super().__init__(*args, **kwargs)
 
 
-def _quiet_module_tqdm(stack: ExitStack, function: Any) -> None:
+def _quiet_module_tqdm(stack: ExitStack, function: Callable[..., Any]) -> None:
     """
     Replace the tqdm symbol in the module defining `function`, when present.
     """
@@ -48,7 +52,7 @@ def track_astra(img_array: NDArray[Any],
                 mask_array: NDArray[Any], 
                 mode: Mode = "greedy_nodiv", 
                 pretrained_model: PretrainedModel = "general_2d", 
-                max_distance: int = 128
+                max_distance: float = 128
                 ) -> tuple[pd.DataFrame, NDArray[Any]]:
     """Perform tracking using the Trackastra model.
     
@@ -62,31 +66,29 @@ def track_astra(img_array: NDArray[Any],
     Returns:
         A tuple containing a DataFrame with track information and a mask array with tracked labels.
     """
-    with ExitStack() as stack:
-        # These functions use their own directly imported tqdm.
-        _quiet_module_tqdm(stack, build_graph)
-        _quiet_module_tqdm(stack, track_greedy)
-        _quiet_module_tqdm(stack, graph_to_ctc)
-        _quiet_module_tqdm(stack, apply_solution_graph_to_masks)
-    
     # Loading a cached model through ``from_pretrained`` produces an
     # unconditional print in Trackastra. Bypass its downloader when the model
     # is already available, without redirecting stdout used by the pipeline UI.
     model_dir = Path(user_data_dir("trackastra")) / "models" / pretrained_model
     if model_dir.exists():
-        model = Trackastra.from_folder(model_dir)
+        model = ResumableTrackastra.from_folder(model_dir)
     else:
-        model = Trackastra.from_pretrained(pretrained_model)
+        model = ResumableTrackastra.from_pretrained(pretrained_model)
     
     # Perform tracking
-    with warnings.catch_warnings():
+    with ExitStack() as stack, warnings.catch_warnings():
+        # Keep progress suppression active throughout prediction and linking.
+        _quiet_module_tqdm(stack, build_graph)
+        _quiet_module_tqdm(stack, track_greedy)
+        _quiet_module_tqdm(stack, graph_to_ctc)
+        _quiet_module_tqdm(stack, apply_solution_graph_to_masks)
         warnings.simplefilter("ignore", SparseEfficiencyWarning)
-        track_graph, masks_tracked = model.track(img_array,
-                                                 mask_array,
-                                                 mode=mode,
-                                                 max_distance=max_distance,
-                                                 progbar_class=_QuietTqdm)
+        track_graph, masks_tracked = model.track(
+            img_array, mask_array, mode=mode, max_distance=max_distance,
+            progbar_class=_QuietTqdm,
+        )
 
         df_tracks, ctc_masks = graph_to_ctc(track_graph, masks_tracked,)
     
-    return df_tracks, ctc_masks
+    # graph_to_ctc preserves the NumPy/Dask family of the input masks.
+    return df_tracks, cast(NDArray[Any], ctc_masks)
