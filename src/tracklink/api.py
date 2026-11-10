@@ -69,17 +69,17 @@ class TrackModel:
 
 if __name__ == "__main__":
     from pathlib import Path
-    from fits_io import FitsIO
+    from scope_io import ScopeIO
     
     user_settings = {'pretrained_model': "general_2d", 
                      'mode': "greedy_nodiv", 
                      'max_distance': 128}
     
     folder = Path("/media/ben/Analysis/Python/Images/zymosan/zym_chamber_500k_WT_HoxB8_001_s1")
-    arrays = FitsIO.from_path(folder / "fits_array.tif")
+    arrays = ScopeIO.from_path(folder / "fits_array.tif")
     BFP_array = arrays.get_channel('BFP').array
     
-    masks = FitsIO.from_path(folder / "fits_mask.tif")
+    masks = ScopeIO.from_path(folder / "fits_mask.tif")
     BFP_mask = masks.get_array().array
     
     tracking = TrackModel(backend="trackastra")
