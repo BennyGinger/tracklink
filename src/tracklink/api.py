@@ -65,35 +65,3 @@ class TrackModel:
         """
         return self._backend.tracks_df
     
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-    from scope_io import ScopeIO
-    
-    user_settings = {'pretrained_model': "general_2d", 
-                     'mode': "greedy_nodiv", 
-                     'max_distance': 128}
-    
-    folder = Path("/media/ben/Analysis/Python/Images/zymosan/zym_chamber_500k_WT_HoxB8_001_s1")
-    arrays = ScopeIO.from_path(folder / "fits_array.tif")
-    BFP_array = arrays.get_channel('BFP').array
-    
-    masks = ScopeIO.from_path(folder / "fits_mask.tif")
-    BFP_mask = masks.get_array().array
-    
-    tracking = TrackModel(backend="trackastra")
-    tracking.configure(user_settings)
-    tracked_mask = tracking.track(BFP_array, BFP_mask)
-    masks.save_array(tracked_mask,
-                     channel_labels="BFP",
-                     output_name="fits_tracked.tif",)
-    
-    
-    tracks_df = tracking.tracks_df
-    tracks_df.to_csv(folder / "fits_tracks.csv", index=False)
-    
-    filtered_mask = tracking.filter_by_length(min_length=120)
-    masks.save_array(filtered_mask,
-                     channel_labels="BFP",
-                     output_name="fits_tracked_filtered.tif",)
